@@ -1,0 +1,27 @@
+[package]
+name = "ledger-iota"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+license = "MIT"
+authors = ["Franz Geffke <mail@gofranz.com>"]
+description = "Rust client library for the IOTA Ledger application"
+repository = "https://github.com/franzos/ledger-iota-rs"
+keywords = ["ledger", "iota", "hardware-wallet", "signing", "ed25519"]
+categories = ["cryptography", "hardware-support"]
+
+[features]
+default = ["hid"]
+hid = ["hidapi"]
+tcp = []
+iota-sdk-types = ["dep:iota-sdk-types"]
+
+[dependencies]
+thiserror = "1"
+log = "0.4"
+hex = "0.4"
+byteorder = "1"
+sha2 = "0.10"
+
+hidapi = { version = "2.6", features = ["linux-static-hidraw"], default-features = false, optional = true }
+iota-sdk-types = { version = "0.0.1-alpha.1", default-features = false, optional = true }
