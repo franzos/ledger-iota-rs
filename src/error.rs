@@ -74,6 +74,87 @@ impl LedgerError {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_success_ok() {
+        assert!(StatusWord::is_success(0x9000));
+    }
+
+    #[test]
+    fn is_success_rejects_other_codes() {
+        assert!(!StatusWord::is_success(0x5515));
+        assert!(!StatusWord::is_success(0x6985));
+        assert!(!StatusWord::is_success(0x0000));
+    }
+
+    #[test]
+    fn from_status_device_locked() {
+        assert!(matches!(
+            LedgerError::from_status(0x5515),
+            LedgerError::DeviceLocked
+        ));
+    }
+
+    #[test]
+    fn from_status_blind_signing_disabled() {
+        assert!(matches!(
+            LedgerError::from_status(0x6808),
+            LedgerError::BlindSigningDisabled
+        ));
+    }
+
+    #[test]
+    fn from_status_nothing_received() {
+        assert!(matches!(
+            LedgerError::from_status(0x6982),
+            LedgerError::DeviceStatus(0x6982, "nothing received")
+        ));
+    }
+
+    #[test]
+    fn from_status_user_rejected() {
+        assert!(matches!(
+            LedgerError::from_status(0x6985),
+            LedgerError::UserRejected
+        ));
+    }
+
+    #[test]
+    fn from_status_general_error_maps_to_user_rejected() {
+        assert!(matches!(
+            LedgerError::from_status(0x6D00),
+            LedgerError::UserRejected
+        ));
+    }
+
+    #[test]
+    fn from_status_wrong_app() {
+        assert!(matches!(
+            LedgerError::from_status(0x6E00),
+            LedgerError::WrongApp(_)
+        ));
+    }
+
+    #[test]
+    fn from_status_app_not_open() {
+        assert!(matches!(
+            LedgerError::from_status(0x6E01),
+            LedgerError::AppNotOpen
+        ));
+    }
+
+    #[test]
+    fn from_status_unknown_code() {
+        assert!(matches!(
+            LedgerError::from_status(0xFFFF),
+            LedgerError::DeviceStatus(0xFFFF, "unknown")
+        ));
+    }
+}
+
 /// Transport-level errors (USB, TCP, IO).
 #[derive(Debug, Error)]
 pub enum TransportError {

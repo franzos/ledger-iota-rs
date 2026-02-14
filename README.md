@@ -1,8 +1,10 @@
 # Ledger Library for IOTA Application
 
+[![crates.io](https://img.shields.io/crates/v/ledger-iota.svg)](https://crates.io/crates/ledger-iota)
+
 Rust client library for talking to the IOTA Rebased Ledger app (`app-iota` v1.0.x). Standalone — no IOTA SDK dependency. It handles USB HID for real devices and TCP for the Speculos simulator.
 
-See the [IOTA Ledger guide](https://docs.iota.org/users/iota-wallet/how-to/import/ledger) for device setup.
+The official Ledger app lives at [iotaledger/ledger-app-iota](https://github.com/iotaledger/ledger-app-iota). See the [IOTA Ledger guide](https://docs.iota.org/users/iota-wallet/how-to/import/ledger) for device setup.
 
 ## Usage
 
@@ -111,11 +113,25 @@ Unit tests:
 cargo test --all-features
 ```
 
-Integration tests require a running Speculos instance:
+### Integration tests (Speculos emulator)
+
+Integration tests talk to the IOTA app running in the [Speculos](https://github.com/LedgerHQ/speculos) emulator via TCP. A pre-built app ELF is included in `tests/elf/`.
 
 ```sh
-speculos --model nanosp /path/to/app-iota.elf
-cargo test --features tcp -- --ignored
+# start the emulator
+podman compose up -d
+
+# run integration tests (must be single-threaded)
+cargo test --features tcp -- --ignored --test-threads=1
+
+# stop
+podman compose down
+```
+
+To use a custom ELF or device model:
+
+```sh
+APP_ELF=/path/to/app.elf SPECULOS_MODEL=nanox podman compose up -d
 ```
 
 ## Supported devices

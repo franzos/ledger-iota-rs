@@ -1,0 +1,9 @@
+The pre-built app ELF in this directory is compiled from:
+
+  https://github.com/iotaledger/ledger-app-iota (tag: ledger-app-iota-v1.0.1)
+
+Licensed under the Apache License, Version 2.0.
+Copyright (c) IOTA Foundation.
+
+It is included here solely for running integration tests against the
+Speculos emulator. See the upstream repository for the full license text.

@@ -62,3 +62,105 @@ impl Transport for TcpTransport {
         Ok(ApduAnswer::from_raw(resp))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    /// Spin up a local TCP listener, return (transport, server_stream).
+    fn mock_pair() -> (TcpTransport, TcpStream) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let transport = TcpTransport::new("127.0.0.1", port).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        (transport, server)
+    }
+
+    #[test]
+    fn normal_exchange() {
+        let (transport, mut server) = mock_pair();
+
+        let cmd = ApduCommand::new(0x00);
+
+        let handle = std::thread::spawn(move || transport.exchange(&cmd));
+
+        // Read the request
+        let mut len_buf = [0u8; 4];
+        server.read_exact(&mut len_buf).unwrap();
+        let req_len = u32::from_be_bytes(len_buf) as usize;
+        let mut req = vec![0u8; req_len];
+        server.read_exact(&mut req).unwrap();
+
+        // Send response: [u32 BE length][payload][SW bare]
+        let payload = b"\xAA\xBB";
+        server
+            .write_all(&(payload.len() as u32).to_be_bytes())
+            .unwrap();
+        server.write_all(payload).unwrap();
+        server.write_all(&[0x90, 0x00]).unwrap(); // SW
+        server.flush().unwrap();
+
+        let answer = handle.join().unwrap().unwrap();
+        assert_eq!(answer.retcode(), 0x9000);
+        assert_eq!(answer.data(), &[0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn zero_length_response() {
+        let (transport, mut server) = mock_pair();
+
+        let cmd = ApduCommand::new(0x00);
+
+        let handle = std::thread::spawn(move || transport.exchange(&cmd));
+
+        // Consume request
+        let mut len_buf = [0u8; 4];
+        server.read_exact(&mut len_buf).unwrap();
+        let req_len = u32::from_be_bytes(len_buf) as usize;
+        let mut req = vec![0u8; req_len];
+        server.read_exact(&mut req).unwrap();
+
+        // Send zero-length response + SW
+        server.write_all(&0u32.to_be_bytes()).unwrap();
+        server.write_all(&[0x90, 0x00]).unwrap();
+        server.flush().unwrap();
+
+        let answer = handle.join().unwrap().unwrap();
+        assert_eq!(answer.retcode(), 0x9000);
+        assert!(answer.data().is_empty());
+    }
+
+    #[test]
+    fn response_too_large_rejected() {
+        let (transport, mut server) = mock_pair();
+
+        let cmd = ApduCommand::new(0x00);
+
+        let handle = std::thread::spawn(move || transport.exchange(&cmd));
+
+        // Consume request
+        let mut len_buf = [0u8; 4];
+        server.read_exact(&mut len_buf).unwrap();
+        let req_len = u32::from_be_bytes(len_buf) as usize;
+        let mut req = vec![0u8; req_len];
+        server.read_exact(&mut req).unwrap();
+
+        // Claim response is 65537 bytes
+        server.write_all(&65537u32.to_be_bytes()).unwrap();
+        server.flush().unwrap();
+
+        let err = handle.join().unwrap().unwrap_err();
+        assert!(matches!(err, TransportError::Comm(_)));
+    }
+
+    #[test]
+    fn connection_refused() {
+        // Port 1 should be refused on most systems
+        let result = TcpTransport::new("127.0.0.1", 1);
+        assert!(result.is_err());
+        if let Err(err) = result {
+            assert!(matches!(err, TransportError::ConnectionFailed(_)));
+        }
+    }
+}

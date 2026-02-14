@@ -108,3 +108,36 @@ impl LedgerIota {
 fn version_ok(v: &AppVersion) -> bool {
     (v.major, v.minor, v.patch) >= MIN_VERSION
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn version(major: u8, minor: u8, patch: u8) -> AppVersion {
+        AppVersion {
+            major,
+            minor,
+            patch,
+            name: "iota".into(),
+        }
+    }
+
+    #[test]
+    fn version_ok_exact_minimum() {
+        assert!(version_ok(&version(0, 9, 0)));
+    }
+
+    #[test]
+    fn version_ok_above_minimum() {
+        assert!(version_ok(&version(0, 9, 1)));
+        assert!(version_ok(&version(0, 10, 0)));
+        assert!(version_ok(&version(1, 0, 0)));
+    }
+
+    #[test]
+    fn version_ok_below_minimum() {
+        assert!(!version_ok(&version(0, 8, 9)));
+        assert!(!version_ok(&version(0, 8, 255)));
+        assert!(!version_ok(&version(0, 0, 0)));
+    }
+}

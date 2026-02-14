@@ -41,3 +41,68 @@ pub(crate) fn parse_pubkey_response(data: &[u8]) -> Result<(PublicKey, Address),
 
     Ok((PublicKey(pubkey), Address(address)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_response() -> Vec<u8> {
+        let mut data = Vec::new();
+        data.push(32); // pk_len
+        data.extend_from_slice(&[0xAA; 32]); // pubkey
+        data.push(32); // addr_len
+        data.extend_from_slice(&[0xBB; 32]); // address
+        data
+    }
+
+    #[test]
+    fn parse_valid_response() {
+        let (pk, addr) = parse_pubkey_response(&valid_response()).unwrap();
+        assert_eq!(pk.0, [0xAA; 32]);
+        assert_eq!(addr.0, [0xBB; 32]);
+    }
+
+    #[test]
+    fn parse_empty_response() {
+        let err = parse_pubkey_response(&[]).unwrap_err();
+        assert!(matches!(err, LedgerError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn parse_wrong_pubkey_length() {
+        let mut data = vec![31]; // pk_len = 31
+        data.extend_from_slice(&[0; 64]);
+        let err = parse_pubkey_response(&data).unwrap_err();
+        assert!(matches!(err, LedgerError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn parse_truncated_pubkey() {
+        let mut data = vec![32]; // pk_len = 32
+        data.extend_from_slice(&[0; 10]); // only 10 bytes of pubkey
+        let err = parse_pubkey_response(&data).unwrap_err();
+        assert!(matches!(err, LedgerError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn parse_wrong_address_length() {
+        let mut data = Vec::new();
+        data.push(32);
+        data.extend_from_slice(&[0; 32]); // valid pubkey
+        data.push(31); // addr_len = 31
+        data.extend_from_slice(&[0; 64]);
+        let err = parse_pubkey_response(&data).unwrap_err();
+        assert!(matches!(err, LedgerError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn parse_truncated_address() {
+        let mut data = Vec::new();
+        data.push(32);
+        data.extend_from_slice(&[0; 32]); // valid pubkey
+        data.push(32); // addr_len = 32
+        data.extend_from_slice(&[0; 10]); // only 10 bytes of address
+        let err = parse_pubkey_response(&data).unwrap_err();
+        assert!(matches!(err, LedgerError::InvalidResponse(_)));
+    }
+}

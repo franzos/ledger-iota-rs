@@ -9,6 +9,7 @@ description = "Rust client library for the IOTA Ledger application"
 repository = "https://github.com/franzos/ledger-iota-rs"
 keywords = ["ledger", "iota", "hardware-wallet", "signing", "ed25519"]
 categories = ["cryptography", "hardware-support"]
+exclude = ["tests/elf/", "docker-compose.yml", ".envrc", "manifest.scm", ".github/"]
 
 [features]
 default = ["hid"]
@@ -25,3 +26,7 @@ sha2 = "0.10"
 
 hidapi = { version = "2.6", features = ["linux-static-hidraw"], default-features = false, optional = true }
 iota-sdk-types = { version = "0.0.1-alpha.1", default-features = false, optional = true }
+
+[dev-dependencies]
+ed25519-dalek = "2"
+blake2 = "0.10"

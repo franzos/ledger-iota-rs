@@ -138,3 +138,194 @@ fn send_apdu(
     let answer = transport.exchange(&cmd).map_err(LedgerError::Transport)?;
     Ok(answer)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    /// Mock transport that returns a sequence of pre-built APDU responses.
+    struct MockTransport {
+        responses: Mutex<Vec<Vec<u8>>>,
+    }
+
+    impl MockTransport {
+        fn new(responses: Vec<Vec<u8>>) -> Self {
+            Self {
+                responses: Mutex::new(responses),
+            }
+        }
+    }
+
+    impl Transport for MockTransport {
+        fn exchange(&self, _cmd: &ApduCommand) -> Result<ApduAnswer, crate::error::TransportError> {
+            let mut q = self.responses.lock().unwrap();
+            if q.is_empty() {
+                panic!("MockTransport: no more responses");
+            }
+            Ok(ApduAnswer::from_raw(q.remove(0)))
+        }
+    }
+
+    /// Build a raw APDU response: `[payload][SW1][SW2]`
+    fn apdu_ok(payload: &[u8]) -> Vec<u8> {
+        let mut v = payload.to_vec();
+        v.push(0x90);
+        v.push(0x00);
+        v
+    }
+
+    #[test]
+    fn result_final_no_params() {
+        // Device immediately returns ResultFinal with payload "hello"
+        let mut payload = vec![DeviceMsg::ResultFinal as u8];
+        payload.extend_from_slice(b"hello");
+        let transport = MockTransport::new(vec![apdu_ok(&payload)]);
+
+        let result = execute(&transport, Instruction::GetVersion, &[]).unwrap();
+        assert_eq!(result, b"hello");
+    }
+
+    #[test]
+    fn result_final_empty_payload() {
+        let payload = vec![DeviceMsg::ResultFinal as u8];
+        let transport = MockTransport::new(vec![apdu_ok(&payload)]);
+
+        let result = execute(&transport, Instruction::GetVersion, &[]).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn result_accumulating_then_final() {
+        // First response: ResultAccumulating with "part1"
+        let mut resp1 = vec![DeviceMsg::ResultAccumulating as u8];
+        resp1.extend_from_slice(b"part1");
+
+        // Second response: ResultFinal with "part2"
+        let mut resp2 = vec![DeviceMsg::ResultFinal as u8];
+        resp2.extend_from_slice(b"part2");
+
+        let transport = MockTransport::new(vec![apdu_ok(&resp1), apdu_ok(&resp2)]);
+
+        let result = execute(&transport, Instruction::GetVersion, &[]).unwrap();
+        assert_eq!(result, b"part1part2");
+    }
+
+    #[test]
+    fn get_chunk_serves_block_from_params() {
+        // Provide a small param so there's one block in the hash_map
+        let param = b"test_data".to_vec();
+        let blocks = chunks::build_block_chain(&param);
+        let hash = chunks::hash_block(&blocks[0]);
+
+        // Device asks for that block hash, then returns ResultFinal
+        let mut get_chunk = vec![DeviceMsg::GetChunk as u8];
+        get_chunk.extend_from_slice(&hash);
+
+        let mut final_resp = vec![DeviceMsg::ResultFinal as u8];
+        final_resp.extend_from_slice(b"ok");
+
+        let transport = MockTransport::new(vec![apdu_ok(&get_chunk), apdu_ok(&final_resp)]);
+
+        let result = execute(&transport, Instruction::GetVersion, &[param]).unwrap();
+        assert_eq!(result, b"ok");
+    }
+
+    #[test]
+    fn get_chunk_unknown_hash_sends_failure() {
+        // Device asks for a hash we don't have
+        let mut get_chunk = vec![DeviceMsg::GetChunk as u8];
+        get_chunk.extend_from_slice(&[0xAA; 32]); // unknown hash
+
+        // After failure response, device returns ResultFinal
+        let mut final_resp = vec![DeviceMsg::ResultFinal as u8];
+        final_resp.extend_from_slice(b"done");
+
+        let transport = MockTransport::new(vec![apdu_ok(&get_chunk), apdu_ok(&final_resp)]);
+
+        let result = execute(&transport, Instruction::GetVersion, &[]).unwrap();
+        assert_eq!(result, b"done");
+    }
+
+    #[test]
+    fn get_chunk_too_short_errors() {
+        // GetChunk with only 10 bytes of hash (need 32)
+        let mut get_chunk = vec![DeviceMsg::GetChunk as u8];
+        get_chunk.extend_from_slice(&[0xBB; 10]);
+
+        let transport = MockTransport::new(vec![apdu_ok(&get_chunk)]);
+
+        let err = execute(&transport, Instruction::GetVersion, &[]).unwrap_err();
+        assert!(matches!(err, LedgerError::BlockProtocol(_)));
+    }
+
+    #[test]
+    fn put_chunk_stores_and_can_be_retrieved() {
+        let chunk_data = b"device_pushed_this";
+        let chunk_hash = chunks::sha256(chunk_data);
+
+        // 1. Device pushes a chunk
+        let mut put_msg = vec![DeviceMsg::PutChunk as u8];
+        put_msg.extend_from_slice(chunk_data);
+
+        // 2. Device asks for the chunk back by hash
+        let mut get_msg = vec![DeviceMsg::GetChunk as u8];
+        get_msg.extend_from_slice(&chunk_hash);
+
+        // 3. Device returns final
+        let mut final_resp = vec![DeviceMsg::ResultFinal as u8];
+        final_resp.extend_from_slice(b"ok");
+
+        let transport = MockTransport::new(vec![
+            apdu_ok(&put_msg),
+            apdu_ok(&get_msg),
+            apdu_ok(&final_resp),
+        ]);
+
+        let result = execute(&transport, Instruction::GetVersion, &[]).unwrap();
+        assert_eq!(result, b"ok");
+    }
+
+    #[test]
+    fn unknown_message_type_errors() {
+        let payload = vec![0xFF]; // not a known DeviceMsg
+        let transport = MockTransport::new(vec![apdu_ok(&payload)]);
+
+        let err = execute(&transport, Instruction::GetVersion, &[]).unwrap_err();
+        assert!(matches!(err, LedgerError::BlockProtocol(_)));
+    }
+
+    #[test]
+    fn empty_response_with_error_status() {
+        // Empty payload + error status word (0x6985 = UserRejected)
+        let transport = MockTransport::new(vec![vec![0x69, 0x85]]);
+
+        let err = execute(&transport, Instruction::GetVersion, &[]).unwrap_err();
+        assert!(matches!(err, LedgerError::UserRejected));
+    }
+
+    #[test]
+    fn empty_response_with_success_status_still_errors() {
+        // Empty payload + 0x9000 — no data means protocol error
+        let transport = MockTransport::new(vec![vec![0x90, 0x00]]);
+
+        let err = execute(&transport, Instruction::GetVersion, &[]).unwrap_err();
+        assert!(matches!(err, LedgerError::BlockProtocol(_)));
+    }
+
+    #[test]
+    fn transport_error_propagates() {
+        struct FailTransport;
+        impl Transport for FailTransport {
+            fn exchange(
+                &self,
+                _cmd: &ApduCommand,
+            ) -> Result<ApduAnswer, crate::error::TransportError> {
+                Err(crate::error::TransportError::Timeout(5000))
+            }
+        }
+
+        let err = execute(&FailTransport, Instruction::GetVersion, &[]).unwrap_err();
+        assert!(matches!(err, LedgerError::Transport(_)));
+    }
+}

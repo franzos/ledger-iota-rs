@@ -83,6 +83,92 @@ impl ApduAnswer {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- ApduCommand --
+
+    #[test]
+    fn serialize_empty_data() {
+        let cmd = ApduCommand::new(0x42);
+        let buf = cmd.serialize();
+        assert_eq!(buf, vec![0x00, 0x42, 0x00, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn serialize_with_data() {
+        let cmd = ApduCommand::with_data(0x01, vec![0xAA, 0xBB]);
+        let buf = cmd.serialize();
+        assert_eq!(buf, vec![0x00, 0x01, 0x00, 0x00, 0x02, 0xAA, 0xBB]);
+    }
+
+    #[test]
+    fn serialize_max_255_bytes() {
+        let cmd = ApduCommand::with_data(0x01, vec![0xFF; 255]);
+        let buf = cmd.serialize();
+        assert_eq!(buf.len(), 5 + 255);
+        assert_eq!(buf[4], 255); // LC byte
+    }
+
+    #[test]
+    #[should_panic(expected = "APDU data too long")]
+    fn serialize_panics_at_256_bytes() {
+        let cmd = ApduCommand::with_data(0x01, vec![0x00; 256]);
+        cmd.serialize();
+    }
+
+    // -- ApduAnswer --
+
+    #[test]
+    fn retcode_empty_response() {
+        let ans = ApduAnswer::from_raw(vec![]);
+        assert_eq!(ans.retcode(), 0);
+    }
+
+    #[test]
+    fn retcode_single_byte() {
+        let ans = ApduAnswer::from_raw(vec![0x90]);
+        assert_eq!(ans.retcode(), 0);
+    }
+
+    #[test]
+    fn retcode_just_status_word() {
+        let ans = ApduAnswer::from_raw(vec![0x90, 0x00]);
+        assert_eq!(ans.retcode(), 0x9000);
+    }
+
+    #[test]
+    fn retcode_with_payload() {
+        let ans = ApduAnswer::from_raw(vec![0x01, 0x02, 0x03, 0x69, 0x85]);
+        assert_eq!(ans.retcode(), 0x6985);
+    }
+
+    #[test]
+    fn data_empty_response() {
+        let ans = ApduAnswer::from_raw(vec![]);
+        assert!(ans.data().is_empty());
+    }
+
+    #[test]
+    fn data_single_byte() {
+        let ans = ApduAnswer::from_raw(vec![0x90]);
+        assert!(ans.data().is_empty());
+    }
+
+    #[test]
+    fn data_just_status_word() {
+        let ans = ApduAnswer::from_raw(vec![0x90, 0x00]);
+        assert!(ans.data().is_empty());
+    }
+
+    #[test]
+    fn data_strips_status_word() {
+        let ans = ApduAnswer::from_raw(vec![0xAA, 0xBB, 0xCC, 0x90, 0x00]);
+        assert_eq!(ans.data(), &[0xAA, 0xBB, 0xCC]);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
