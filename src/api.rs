@@ -143,6 +143,18 @@ impl LedgerIota {
             Err(LedgerError::Transport(_)) => {
                 #[cfg(feature = "hid")]
                 if transport::hid::HidTransport::is_device_present() {
+                    // Device is on USB but the stale handle can't talk to it.
+                    // Try to reconnect and re-probe before assuming "locked".
+                    if self.transport.reconnect().is_ok() {
+                        return match self.get_version() {
+                            Ok(v) if is_iota_app(&v.name) => DeviceStatus::Connected,
+                            Ok(v) => DeviceStatus::WrongApp(v.name),
+                            Err(LedgerError::DeviceLocked) => DeviceStatus::Locked,
+                            Err(LedgerError::AppNotOpen) => DeviceStatus::AppClosed,
+                            Err(LedgerError::WrongApp(name)) => DeviceStatus::WrongApp(name),
+                            Err(_) => DeviceStatus::Locked,
+                        };
+                    }
                     return DeviceStatus::Locked;
                 }
                 DeviceStatus::Disconnected
