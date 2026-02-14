@@ -13,6 +13,14 @@ use crate::error::TransportError;
 
 pub trait Transport: Send + Sync {
     fn exchange(&self, command: &ApduCommand) -> Result<ApduAnswer, TransportError>;
+
+    /// Drop the current connection and open a fresh one.
+    ///
+    /// The default returns an error — only transports that support
+    /// reconnection (e.g. USB HID) need to override this.
+    fn reconnect(&self) -> Result<(), TransportError> {
+        Err(TransportError::Comm("reconnect not supported".into()))
+    }
 }
 
 #[derive(Debug, Clone)]

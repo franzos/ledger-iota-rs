@@ -103,6 +103,38 @@ let signature = ledger.sign_tx(&tx_bytes, &path, Some(&objects))?;
 
 Supported object types: GasCoin, custom coins (`0x2::coin::Coin<T>`), and StakedIota.
 
+## Device status and reconnection
+
+`check_status()` probes the device and returns a `DeviceStatus`:
+
+| `DeviceStatus` | Device state | What the user should do |
+|----------------|-------------|------------------------|
+| `Connected` | IOTA app open, ready to sign | Nothing — good to go |
+| `AppClosed` | On the dashboard, no app open | Open the IOTA app |
+| `WrongApp(_)` | A different app is open | Close it and open the IOTA app |
+| `Locked` | Locked after PIN timeout | Enter PIN, then reopen the IOTA app |
+| `Disconnected` | Not on USB (unplugged or at boot PIN screen) | Plug in and unlock |
+
+```rust
+use ledger_iota::DeviceStatus;
+
+match ledger.check_status() {
+    DeviceStatus::Connected => { /* ready */ }
+    DeviceStatus::Locked => println!("please unlock your Ledger"),
+    DeviceStatus::AppClosed => println!("please open the IOTA app"),
+    DeviceStatus::WrongApp(_) => println!("wrong app — open the IOTA app"),
+    DeviceStatus::Disconnected => println!("Ledger not found — plug it in and unlock"),
+}
+```
+
+When the device locks or disconnects, the USB handle goes stale. Call `reconnect()` after the user restores the device:
+
+```rust
+ledger.reconnect()?; // drops old handle, re-enumerates USB, verifies IOTA app
+```
+
+The Ledger is invisible on USB while showing the PIN screen (at boot or after a power cycle). It only appears after the user enters the PIN.
+
 ## Examples
 
 ```sh
@@ -113,6 +145,8 @@ cargo run --example pubkeys       # generate range of pubkeys
 cargo run --example sign --features tcp  # sign with Speculos
 cargo run --example sign_message         # sign a personal message
 cargo run --example send_iota -- 0x<ADDR> 1000000000  # build & sign IOTA transfer
+cargo run --example status               # probe device state
+cargo run --example status -- --reconnect # test reconnection (--wait <secs> to set delay)
 ```
 
 ## Testing

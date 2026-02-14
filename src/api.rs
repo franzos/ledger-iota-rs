@@ -19,6 +19,21 @@ type Signature = iota_sdk_types::Ed25519Signature;
 
 const MIN_VERSION: (u8, u8, u8) = (0, 9, 0);
 
+/// Current state of the Ledger device from the wallet's perspective.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceStatus {
+    /// IOTA app is open and ready.
+    Connected,
+    /// Device is locked — user needs to enter the PIN.
+    Locked,
+    /// Device is on the dashboard — no app is open.
+    AppClosed,
+    /// A different app is open on the device.
+    WrongApp(String),
+    /// No Ledger device found on USB (unplugged or PIN screen at boot).
+    Disconnected,
+}
+
 fn is_iota_app(name: &str) -> bool {
     name.to_ascii_lowercase().contains("iota")
 }
@@ -80,11 +95,7 @@ impl LedgerIota {
     /// The signature covers `Blake2b-256([3, 0, 0] || message)`.
     ///
     /// Max message size: 2 KB on Nano X, 4 KB on other devices.
-    pub fn sign_message(
-        &self,
-        message: &[u8],
-        path: &Bip32Path,
-    ) -> Result<Signature, LedgerError> {
+    pub fn sign_message(&self, message: &[u8], path: &Bip32Path) -> Result<Signature, LedgerError> {
         let mut intent_message = Vec::with_capacity(3 + message.len());
         intent_message.extend_from_slice(&[3, 0, 0]);
         intent_message.extend_from_slice(message);
@@ -119,6 +130,35 @@ impl LedgerIota {
             Ok(v) => is_iota_app(&v.name),
             Err(_) => false,
         }
+    }
+
+    /// Probe the device and return its current status.
+    pub fn check_status(&self) -> DeviceStatus {
+        match self.get_version() {
+            Ok(v) if is_iota_app(&v.name) => DeviceStatus::Connected,
+            Ok(v) => DeviceStatus::WrongApp(v.name),
+            Err(LedgerError::DeviceLocked) => DeviceStatus::Locked,
+            Err(LedgerError::AppNotOpen) => DeviceStatus::AppClosed,
+            Err(LedgerError::WrongApp(name)) => DeviceStatus::WrongApp(name),
+            Err(LedgerError::Transport(_)) => {
+                #[cfg(feature = "hid")]
+                if transport::hid::HidTransport::is_device_present() {
+                    return DeviceStatus::Locked;
+                }
+                DeviceStatus::Disconnected
+            }
+            Err(_) => DeviceStatus::Disconnected,
+        }
+    }
+
+    /// Reconnect the underlying transport and verify the IOTA app is still open.
+    pub fn reconnect(&self) -> Result<(), LedgerError> {
+        self.transport.reconnect()?;
+        let version = self.get_version()?;
+        if !is_iota_app(&version.name) {
+            return Err(LedgerError::WrongApp(version.name));
+        }
+        Ok(())
     }
 }
 

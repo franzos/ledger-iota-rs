@@ -43,7 +43,7 @@ pub mod transport;
 pub mod tx;
 pub mod types;
 
-pub use api::LedgerIota;
+pub use api::{DeviceStatus, LedgerIota};
 pub use error::LedgerError;
 #[cfg(feature = "iota-sdk-types")]
 pub use iota_sdk_types::{Address, Ed25519PublicKey, Ed25519Signature};

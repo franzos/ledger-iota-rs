@@ -83,6 +83,39 @@ impl HidTransport {
         self.device_type
     }
 
+    /// Drop the stale handle, re-enumerate USB, and open a fresh device.
+    pub fn reconnect(&self) -> Result<(), TransportError> {
+        let api = hidapi::HidApi::new().map_err(|e| TransportError::Comm(e.to_string()))?;
+
+        for info in api.device_list() {
+            if info.vendor_id() == LEDGER_VID && info.usage_page() == LEDGER_USAGE_PAGE {
+                let device = info
+                    .open_device(&api)
+                    .map_err(|e| TransportError::Comm(e.to_string()))?;
+                let mut guard = self
+                    .device
+                    .lock()
+                    .map_err(|e| TransportError::Comm(format!("mutex poisoned: {e}")))?;
+                *guard = device;
+                log::info!("reconnected to Ledger {}", self.device_type);
+                return Ok(());
+            }
+        }
+
+        Err(TransportError::DeviceNotFound)
+    }
+
+    /// Check whether any Ledger device is present on USB (no device open needed).
+    pub fn is_device_present() -> bool {
+        let Ok(api) = hidapi::HidApi::new() else {
+            return false;
+        };
+        let found = api
+            .device_list()
+            .any(|info| info.vendor_id() == LEDGER_VID && info.usage_page() == LEDGER_USAGE_PAGE);
+        found
+    }
+
     fn write_apdu(device: &hidapi::HidDevice, apdu: &[u8]) -> Result<(), TransportError> {
         // HID framing: 2-byte length prefix, then APDU, split into 59-byte chunks
         let mut payload = Vec::with_capacity(2 + apdu.len());
@@ -174,6 +207,10 @@ impl HidTransport {
 }
 
 impl Transport for HidTransport {
+    fn reconnect(&self) -> Result<(), TransportError> {
+        self.reconnect()
+    }
+
     fn exchange(&self, command: &ApduCommand) -> Result<ApduAnswer, TransportError> {
         let device = self
             .device
