@@ -74,6 +74,23 @@ impl LedgerIota {
         Ok((pk.into(), addr.into()))
     }
 
+    /// Sign an arbitrary message.
+    ///
+    /// The device displays the message and asks for confirmation before signing.
+    /// The signature covers `Blake2b-256([3, 0, 0] || message)`.
+    ///
+    /// Max message size: 2 KB on Nano X, 4 KB on other devices.
+    pub fn sign_message(
+        &self,
+        message: &[u8],
+        path: &Bip32Path,
+    ) -> Result<Signature, LedgerError> {
+        let mut intent_message = Vec::with_capacity(3 + message.len());
+        intent_message.extend_from_slice(&[3, 0, 0]);
+        intent_message.extend_from_slice(message);
+        self.sign_tx(&intent_message, path, None)
+    }
+
     /// Pass `objects` to enable clear signing for non-standard tokens.
     pub fn sign_tx(
         &self,

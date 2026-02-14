@@ -31,6 +31,15 @@ Prompts the user to confirm the address on the Ledger display:
 let (pubkey, address) = ledger.verify_address(&path)?;
 ```
 
+### Sign a message
+
+```rust
+let message = b"Hi, this is my wallet";
+let signature = ledger.sign_message(message, &path)?;
+```
+
+The device displays the message and asks for confirmation. Max message size is 2 KB on Nano X, 4 KB on other devices.
+
 ### Build and sign a transfer
 
 ```rust
@@ -102,6 +111,7 @@ cargo run --example address       # derive address for default path
 cargo run --example verify        # verify address on device
 cargo run --example pubkeys       # generate range of pubkeys
 cargo run --example sign --features tcp  # sign with Speculos
+cargo run --example sign_message         # sign a personal message
 cargo run --example send_iota -- 0x<ADDR> 1000000000  # build & sign IOTA transfer
 ```
 

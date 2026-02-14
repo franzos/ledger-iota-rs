@@ -338,6 +338,45 @@ fn verify_address_matches_pubkey() {
     assert_eq!(addr_get, addr_verify);
 }
 
+/// Sign a message and verify the signature.
+#[test]
+#[ignore = "requires Speculos"]
+fn sign_message() {
+    use blake2::{digest::consts::U32, Blake2b, Digest};
+    use ed25519_dalek::{Signature as DalekSig, Verifier, VerifyingKey};
+
+    let api_port = speculos_api_port();
+
+    let ledger = connect();
+    let path = Bip32Path::iota(0, 0, 1);
+    let (pubkey, _) = ledger.get_pubkey(&path).unwrap();
+
+    let message = b"Hello";
+
+    // Personal message flow: Review → Message → Sign
+    let handle = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        press_buttons(api_port, "RRB");
+    });
+
+    let sig = ledger.sign_message(message, &path).unwrap();
+    handle.join().unwrap();
+
+    let sig_bytes: &[u8] = sig.as_ref();
+    assert_eq!(sig_bytes.len(), 64);
+
+    // Verify: signature covers Blake2b-256([3, 0, 0] || message)
+    let pk_bytes: &[u8] = pubkey.as_ref();
+    let vk = VerifyingKey::from_bytes(pk_bytes.try_into().unwrap()).unwrap();
+    let dalek_sig = DalekSig::from_bytes(sig_bytes.try_into().unwrap());
+
+    let mut intent_message = vec![3u8, 0, 0];
+    intent_message.extend_from_slice(message);
+    let digest = <Blake2b<U32> as Digest>::digest(&intent_message);
+    vk.verify(digest.as_ref(), &dalek_sig)
+        .expect("message signature verification failed");
+}
+
 /// Sign a transaction large enough to require multi-block chunking (>180 bytes).
 #[test]
 #[ignore = "requires Speculos"]
